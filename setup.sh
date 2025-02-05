@@ -268,11 +268,22 @@ setup_monitoring() {
     
     chmod +x "${SECURITY_SCRIPT}" "${SERVER_SCRIPT}"
     
-    # Add cronjobs (avoiding duplicates)
-    (crontab -l 2>/dev/null | grep -v "${SECURITY_SCRIPT}"; echo "*/15 * * * * /opt/monitoring/${SECURITY_SCRIPT}") | sort -u | crontab -
-    (crontab -l 2>/dev/null | grep -v "${SERVER_SCRIPT}"; echo "*/5 * * * * /opt/monitoring/${SERVER_SCRIPT}") | sort -u | crontab -
+    # Add cronjobs for the specified user (avoiding duplicates)
+    sudo -u "$USERNAME" bash -c '
+        (crontab -l 2>/dev/null | grep -v "'${SECURITY_SCRIPT}'"; echo "*/15 * * * * /opt/monitoring/'${SECURITY_SCRIPT}'") | sort -u | crontab -
+        (crontab -l 2>/dev/null | grep -v "'${SERVER_SCRIPT}'"; echo "*/5 * * * * /opt/monitoring/'${SERVER_SCRIPT}'") | sort -u | crontab -
+    '
+    
+    # Run scripts once for testing
+    print_message "info" "Running monitoring scripts for initial test..."
+    sudo -u "$USERNAME" /opt/monitoring/"${SECURITY_SCRIPT}"
+    sudo -u "$USERNAME" /opt/monitoring/"${SERVER_SCRIPT}"
     
     mark_step_complete "monitoring_setup"
+    
+    # Show the user's crontab entries
+    print_message "info" "Current crontab entries for $USERNAME:"
+    sudo -u "$USERNAME" crontab -l
 }
 
 # Function to update system packages
