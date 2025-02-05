@@ -468,24 +468,22 @@ setup_wp_cli() {
     mark_step_complete "wp_cli_setup"
 }
 
-# Function to install WordPress
 install_wordpress() {
     if is_step_completed "wordpress_install"; then
         print_message "info" "WordPress already installed, skipping"
         return 0
     fi
-
     print_message "info" "Installing WordPress..."
     
     mkdir -p /var/www/wordpress
     chown $(whoami):$(whoami) /var/www/wordpress
     
-    # Download WordPress as iamfriendly user
+    # Download WordPress as current user
     cd /var/www
-    wp core download --path=wordpress
+    sudo -u $(whoami) wp core download --path=wordpress
     
     # Create wp-config.php
-    wp config create \
+    sudo -u $(whoami) wp config create \
         --path=/var/www/wordpress \
         --dbname="${DB_NAME}" \
         --dbuser="${DB_USER}" \
@@ -500,24 +498,24 @@ PHP
     
     # Set up Redis configuration if enabled
     if [ "$USE_REDIS" = "true" ]; then
-        wp config set WP_CACHE true --raw --path=/var/www/wordpress
-        wp config set WP_REDIS_HOST "${REDIS_HOST}" --path=/var/www/wordpress
-        wp config set WP_REDIS_PORT "${REDIS_PORT}" --path=/var/www/wordpress
+        sudo -u $(whoami) wp config set WP_CACHE true --raw --path=/var/www/wordpress
+        sudo -u $(whoami) wp config set WP_REDIS_HOST "${REDIS_HOST}" --path=/var/www/wordpress
+        sudo -u $(whoami) wp config set WP_REDIS_PORT "${REDIS_PORT}" --path=/var/www/wordpress
         if [ -n "$REDIS_PASSWORD" ]; then
-            wp config set WP_REDIS_PASSWORD "${REDIS_PASSWORD}" --path=/var/www/wordpress
+            sudo -u $(whoami) wp config set WP_REDIS_PASSWORD "${REDIS_PASSWORD}" --path=/var/www/wordpress
         fi
     fi
     
     # Set up S3 configuration if enabled
     if [ "$USE_S3" = "true" ]; then
-        wp config set S3_UPLOADS_BUCKET "${S3_BUCKET}" --path=/var/www/wordpress
-        wp config set S3_UPLOADS_KEY "${S3_ACCESS_KEY}" --path=/var/www/wordpress
-        wp config set S3_UPLOADS_SECRET "${S3_SECRET_KEY}" --path=/var/www/wordpress
-        wp config set S3_UPLOADS_ENDPOINT "${S3_ENDPOINT}" --path=/var/www/wordpress
+        sudo -u $(whoami) wp config set S3_UPLOADS_BUCKET "${S3_BUCKET}" --path=/var/www/wordpress
+        sudo -u $(whoami) wp config set S3_UPLOADS_KEY "${S3_ACCESS_KEY}" --path=/var/www/wordpress
+        sudo -u $(whoami) wp config set S3_UPLOADS_SECRET "${S3_SECRET_KEY}" --path=/var/www/wordpress
+        sudo -u $(whoami) wp config set S3_UPLOADS_ENDPOINT "${S3_ENDPOINT}" --path=/var/www/wordpress
     fi
     
     # Install WordPress
-    wp core install \
+    sudo -u $(whoami) wp core install \
         --path=/var/www/wordpress \
         --url="https://${SITE_DOMAIN}" \
         --title="${SITE_TITLE}" \
