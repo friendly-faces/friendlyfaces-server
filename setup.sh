@@ -118,7 +118,32 @@ setup_user() {
     print_message "info" "User setup completed"
 }
 
-# Modified function to set up monitoring with proper permissions
+# Function to test monitoring setup
+test_monitoring() {
+    local script_path=$1
+    local script_name=$(basename "$script_path")
+    
+    print_message "info" "Testing $script_name..."
+    
+    # Run the script as the new user
+    if sudo -u "$USERNAME" /bin/bash "$script_path"; then
+        print_message "info" "✅ $script_name executed successfully"
+        
+        # Check if Discord message was sent (look for success log)
+        if sudo -u "$USERNAME" grep -q "Discord notification sent successfully" /tmp/monitoring_test.log 2>/dev/null; then
+            print_message "info" "✅ Discord notification was sent successfully"
+        else
+            print_message "warn" "⚠️  Could not confirm if Discord notification was sent"
+            print_message "info" "Please check your Discord channel for messages"
+        fi
+    else
+        print_message "error" "❌ $script_name failed to execute"
+        print_message "error" "Check the script output above for errors"
+        return 1
+    fi
+}
+
+# Modified setup_monitoring function
 setup_monitoring() {
     if is_step_completed "monitoring_setup"; then
         print_message "info" "Monitoring already configured, skipping"
@@ -159,25 +184,34 @@ EOF
     chown "$USERNAME:$USERNAME" /opt/monitoring/.env
     chmod 600 /opt/monitoring/.env
     
-    # Modify scripts to source the .env file
-    for script in "${SECURITY_SCRIPT}" "${SERVER_SCRIPT}"; do
-        if [ -f "$script" ]; then
-            sudo -u "$USERNAME" sed -i '2i source /opt/monitoring/.env' "$script"
-        fi
-    done
-    
-    # Add cronjobs for the new user
-    sudo -u "$USERNAME" bash -c '
-        (crontab -l 2>/dev/null | grep -v "'${SECURITY_SCRIPT}'"; echo "*/15 * * * * /opt/monitoring/'${SECURITY_SCRIPT}'") | sort -u | crontab -
-        (crontab -l 2>/dev/null | grep -v "'${SERVER_SCRIPT}'"; echo "*/5 * * * * /opt/monitoring/'${SERVER_SCRIPT}'") | sort -u | crontab -
-    '
-    
-    # Test the monitoring setup as the new user
+    # Test both monitoring scripts
     print_message "info" "Testing monitoring setup..."
-    sudo -u "$USERNAME" /opt/monitoring/"${SERVER_SCRIPT}"
-    sudo -u "$USERNAME" /opt/monitoring/"${SECURITY_SCRIPT}"
+    print_message "info" "This will send test notifications to your Discord channels"
+    
+    # Test server monitoring
+    test_monitoring "/opt/monitoring/${SERVER_SCRIPT}"
+    server_test_result=$?
+    
+    # Test security monitoring
+    test_monitoring "/opt/monitoring/${SECURITY_SCRIPT}"
+    security_test_result=$?
+    
+    # Add cronjobs only if tests passed
+    if [ $server_test_result -eq 0 ] && [ $security_test_result -eq 0 ]; then
+        print_message "info" "Setting up cron jobs..."
+        sudo -u "$USERNAME" bash -c '
+            (crontab -l 2>/dev/null | grep -v "'${SECURITY_SCRIPT}'"; echo "*/15 * * * * /opt/monitoring/'${SECURITY_SCRIPT}'") | sort -u | crontab -
+            (crontab -l 2>/dev/null | grep -v "'${SERVER_SCRIPT}'"; echo "*/5 * * * * /opt/monitoring/'${SERVER_SCRIPT}'") | sort -u | crontab -
+        '
+        print_message "info" "✅ Cron jobs set up successfully"
+    else
+        print_message "error" "❌ Monitoring tests failed - please check the errors above"
+        print_message "error" "Cron jobs were NOT set up due to test failures"
+        return 1
+    fi
     
     mark_step_complete "monitoring_setup"
+    print_message "info" "Monitoring setup completed successfully!"
 }
 
 [Previous SSH, security, and Cloudflared setup functions remain the same but with proper ownership settings]
