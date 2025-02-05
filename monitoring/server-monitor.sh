@@ -1,5 +1,7 @@
 #!/bin/bash
 
+source /opt/monitoring/.env
+
 # Exit on error
 set -e
 
