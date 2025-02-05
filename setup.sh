@@ -371,6 +371,41 @@ setup_cloudflared() {
     mark_step_complete "cloudflared_setup"
 }
 
+# Function to update system packages
+update_system() {
+    if is_step_completed "system_update"; then
+        print_message "info" "System already updated, skipping"
+        return 0
+    fi
+
+    print_message "info" "Updating system packages..."
+    apt update && apt upgrade -y
+    mark_step_complete "system_update"
+}
+
+# Function to install essential packages
+install_essentials() {
+    if is_step_completed "essentials_install"; then
+        print_message "info" "Essential packages already installed, skipping"
+        return 0
+    fi
+
+    print_message "info" "Installing essential packages..."
+    apt install -y \
+        curl \
+        wget \
+        git \
+        htop \
+        ufw \
+        fail2ban \
+        net-tools \
+        sudo \
+        unzip \
+        jq
+    
+    mark_step_complete "essentials_install"
+}
+
 # Main function
 main() {
     check_root
