@@ -20,6 +20,9 @@ MONITORING_REPO=${MONITORING_REPO:-"https://github.com/yourgithub/monitoring-scr
 SECURITY_SCRIPT=${SECURITY_SCRIPT:-"security-monitor.sh"}
 SERVER_SCRIPT=${SERVER_SCRIPT:-"server-monitor.sh"}
 
+# Track completed steps
+STEPS_FILE="/tmp/server_setup_progress"
+
 # Function to print colored messages
 print_message() {
     local level=$1
@@ -29,6 +32,20 @@ print_message() {
         "warn")  echo -e "${YELLOW}[WARN] $message${NC}" ;;
         "error") echo -e "${RED}[ERROR] $message${NC}" ;;
     esac
+}
+
+# Function to mark step as completed
+mark_step_complete() {
+    echo "$1" >> "$STEPS_FILE"
+}
+
+# Function to check if step is completed
+is_step_completed() {
+    if [ -f "$STEPS_FILE" ]; then
+        grep -q "^$1\$" "$STEPS_FILE"
+        return $?
+    fi
+    return 1
 }
 
 # Function to check if running as root
@@ -53,16 +70,37 @@ validate_env() {
 
 # Function to set up new user
 setup_user() {
-    print_message "info" "Creating user: $USERNAME"
-    adduser --gecos "" "$USERNAME" || return 1
-    usermod -aG sudo "$USERNAME" || return 1
-    print_message "info" "User $USERNAME created successfully"
+    if is_step_completed "user_setup"; then
+        print_message "info" "User $USERNAME already exists, skipping user creation"
+        return 0
+    fi
+
+    print_message "info" "Checking for user: $USERNAME"
+    if id "$USERNAME" &>/dev/null; then
+        print_message "info" "User $USERNAME already exists"
+    else
+        print_message "info" "Creating user: $USERNAME"
+        adduser --gecos "" "$USERNAME" || return 1
+    fi
+
+    # Ensure user is in sudo group
+    if ! groups "$USERNAME" | grep -q "\bsudo\b"; then
+        usermod -aG sudo "$USERNAME" || return 1
+    fi
+
+    mark_step_complete "user_setup"
+    print_message "info" "User setup completed"
 }
 
 # Function to set up SSH security
 configure_ssh() {
+    if is_step_completed "ssh_setup"; then
+        print_message "info" "SSH already configured, skipping"
+        return 0
+    fi
+
     print_message "info" "Configuring SSH..."
-    cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
+    cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak.$(date +%Y%m%d_%H%M%S)
     
     cat > /etc/ssh/sshd_config <<EOF
 Port ${SSH_PORT}
@@ -80,10 +118,16 @@ Subsystem sftp /usr/lib/openssh/sftp-server
 EOF
     
     systemctl restart ssh
+    mark_step_complete "ssh_setup"
 }
 
 # Function to set up basic security
 setup_security() {
+    if is_step_completed "security_setup"; then
+        print_message "info" "Security measures already configured, skipping"
+        return 0
+    fi
+
     print_message "info" "Setting up security measures..."
     
     # UFW Setup
@@ -106,38 +150,58 @@ EOF
     
     systemctl enable fail2ban
     systemctl restart fail2ban
+    mark_step_complete "security_setup"
 }
 
 # Function to install and configure Cloudflared
 setup_cloudflared() {
-    print_message "info" "Installing Cloudflared..."
+    if is_step_completed "cloudflared_install"; then
+        print_message "info" "Cloudflared already installed, skipping installation"
+    else
+        print_message "info" "Installing Cloudflared..."
+        curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+        dpkg -i cloudflared.deb
+        rm cloudflared.deb
+        mark_step_complete "cloudflared_install"
+    fi
     
-    # Install cloudflared
-    curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
-    dpkg -i cloudflared.deb
-    rm cloudflared.deb
-    
+    if is_step_completed "cloudflared_setup"; then
+        print_message "info" "Cloudflared already configured, skipping setup"
+        return 0
+    fi
+
     # Create directory for cert
     mkdir -p /home/"$USERNAME"/.cloudflared
     chown -R "$USERNAME":"$USERNAME" /home/"$USERNAME"/.cloudflared
     
-    print_message "warn" "Manual step required: Please run 'cloudflared login' as $USERNAME to authenticate"
-    print_message "info" "After login, the cert.pem will be in /home/$USERNAME/.cloudflared/"
-    
-    # Install service with token
-    read -p "Press enter after completing cloudflared login..."
+    # Check if cert.pem already exists
     if [ ! -f "/home/$USERNAME/.cloudflared/cert.pem" ]; then
-        print_message "error" "cert.pem not found. Please run cloudflared login first"
+        print_message "warn" "cert.pem not found. Please run 'cloudflared login' as $USERNAME"
+        read -p "Have you completed cloudflared login? (y/n): " answer
+        if [[ "$answer" != "y" ]]; then
+            print_message "info" "Please complete the login step and run the script again"
+            exit 0
+        fi
+    fi
+    
+    if [ ! -f "/home/$USERNAME/.cloudflared/cert.pem" ]; then
+        print_message "error" "cert.pem still not found. Please run cloudflared login first"
         exit 1
     fi
     
     cloudflared service install "$CLOUDFLARE_TOKEN"
     systemctl enable cloudflared
     systemctl start cloudflared
+    mark_step_complete "cloudflared_setup"
 }
 
 # Function to set up monitoring
 setup_monitoring() {
+    if is_step_completed "monitoring_setup"; then
+        print_message "info" "Monitoring already configured, skipping"
+        return 0
+    fi
+
     print_message "info" "Setting up monitoring scripts..."
     
     # Create monitoring directory
@@ -150,23 +214,32 @@ setup_monitoring() {
     
     chmod +x "${SECURITY_SCRIPT}" "${SERVER_SCRIPT}"
     
-    # Add cronjobs
-    (crontab -l 2>/dev/null || true; echo "*/15 * * * * /opt/monitoring/${SECURITY_SCRIPT}") | crontab -
-    (crontab -l 2>/dev/null || true; echo "*/5 * * * * /opt/monitoring/${SERVER_SCRIPT}") | crontab -
+    # Add cronjobs (avoiding duplicates)
+    (crontab -l 2>/dev/null | grep -v "${SECURITY_SCRIPT}"; echo "*/15 * * * * /opt/monitoring/${SECURITY_SCRIPT}") | sort -u | crontab -
+    (crontab -l 2>/dev/null | grep -v "${SERVER_SCRIPT}"; echo "*/5 * * * * /opt/monitoring/${SERVER_SCRIPT}") | sort -u | crontab -
+    
+    mark_step_complete "monitoring_setup"
 }
 
-# Main function
-main() {
-    check_root
-    validate_env
-    
-    print_message "info" "Starting server setup (v${VERSION})..."
-    
-    # Update system
+# Function to update system packages
+update_system() {
+    if is_step_completed "system_update"; then
+        print_message "info" "System already updated, skipping"
+        return 0
+    fi
+
     print_message "info" "Updating system packages..."
     apt update && apt upgrade -y
-    
-    # Install essential packages
+    mark_step_complete "system_update"
+}
+
+# Function to install essential packages
+install_essentials() {
+    if is_step_completed "essentials_install"; then
+        print_message "info" "Essential packages already installed, skipping"
+        return 0
+    fi
+
     print_message "info" "Installing essential packages..."
     apt install -y \
         curl \
@@ -180,7 +253,19 @@ main() {
         unzip \
         jq
     
+    mark_step_complete "essentials_install"
+}
+
+# Main function
+main() {
+    check_root
+    validate_env
+    
+    print_message "info" "Starting server setup (v${VERSION})..."
+    
     # Run setup functions
+    update_system
+    install_essentials
     setup_user
     configure_ssh
     setup_security
