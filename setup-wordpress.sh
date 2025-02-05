@@ -511,6 +511,7 @@ if ( isset( $_SERVER['HTTP_X_FORWARDED_PROTO'] ) && $_SERVER['HTTP_X_FORWARDED_P
 }
 define('WP_MEMORY_LIMIT', '${PHP_MEMORY_LIMIT}');
 define('FS_METHOD', 'direct');
+define('WP_POST_REVISIONS', 5); 
 PHP
     
     # Set up Redis configuration if enabled
