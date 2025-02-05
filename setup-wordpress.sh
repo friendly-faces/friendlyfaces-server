@@ -316,7 +316,217 @@ add_filter('auto_update_theme', function() {
 EOF
 }
 
-[... Previous functions like setup_nginx(), setup_php(), etc. remain the same but adapted for our choices ...]
+# Function to install and configure Nginx
+setup_nginx() {
+    if is_step_completed "nginx_setup"; then
+        print_message "info" "Nginx already configured, skipping"
+        return 0
+    fi
+
+    print_message "info" "Installing and configuring Nginx..."
+    
+    # Install Nginx
+    apt install -y nginx
+    
+    # Create Nginx configuration for WordPress with Cloudflare Tunnel
+    cat > "/etc/nginx/sites-available/${SITE_DOMAIN}.conf" <<EOF
+server {
+    listen 127.0.0.1:80;
+    server_name _;  # Accept all hostnames since real hostname handling is done by Cloudflare
+    root /var/www/wordpress;
+    index index.php;
+
+    # Larger upload size
+    client_max_body_size ${PHP_UPLOAD_MAX};
+
+    # Security headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "no-referrer-when-downgrade" always;
+    add_header Content-Security-Policy "default-src * data: 'unsafe-eval' 'unsafe-inline'" always;
+
+    # Logging
+    access_log /var/log/nginx/wordpress.access.log;
+    error_log /var/log/nginx/wordpress.error.log;
+
+    location / {
+        try_files \$uri \$uri/ /index.php?\$args;
+    }
+
+    location ~ \.php\$ {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:/var/run/php/php8.2-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+        include fastcgi_params;
+    }
+
+    # Static files
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)\$ {
+        expires max;
+        log_not_found off;
+    }
+
+    # Deny access to sensitive files
+    location ~ /\. {
+        deny all;
+    }
+
+    location = /favicon.ico {
+        log_not_found off;
+        access_log off;
+    }
+
+    location = /robots.txt {
+        allow all;
+        log_not_found off;
+        access_log off;
+    }
+}
+EOF
+
+    # Enable the site and remove default
+    ln -sf "/etc/nginx/sites-available/${SITE_DOMAIN}.conf" /etc/nginx/sites-enabled/
+    rm -f /etc/nginx/sites-enabled/default
+    
+    # Test and reload Nginx
+    nginx -t && systemctl reload nginx
+    
+    mark_step_complete "nginx_setup"
+}
+
+# Function to install and configure PHP
+setup_php() {
+    if is_step_completed "php_setup"; then
+        print_message "info" "PHP already configured, skipping"
+        return 0
+    fi
+
+    print_message "info" "Installing and configuring PHP..."
+    
+    # Install PHP and extensions
+    apt install -y php8.2-fpm php8.2-mysql php8.2-curl php8.2-gd php8.2-mbstring \
+        php8.2-xml php8.2-zip php8.2-imagick php8.2-intl
+    
+    if [ "$USE_REDIS" = "true" ]; then
+        apt install -y php8.2-redis
+    fi
+    
+    # Configure PHP
+    sed -i "s/upload_max_filesize = .*/upload_max_filesize = ${PHP_UPLOAD_MAX}/" /etc/php/8.2/fpm/php.ini
+    sed -i "s/post_max_size = .*/post_max_size = ${PHP_UPLOAD_MAX}/" /etc/php/8.2/fpm/php.ini
+    sed -i "s/memory_limit = .*/memory_limit = ${PHP_MEMORY_LIMIT}/" /etc/php/8.2/fpm/php.ini
+    sed -i "s/max_execution_time = .*/max_execution_time = ${PHP_MAX_EXECUTION_TIME}/" /etc/php/8.2/fpm/php.ini
+    
+    # Restart PHP-FPM
+    systemctl restart php8.2-fpm
+    
+    mark_step_complete "php_setup"
+}
+
+# Function to install and configure MySQL if local
+setup_mysql() {
+    if [ "$DB_IS_LOCAL" != "true" ]; then
+        return 0
+    fi
+
+    if is_step_completed "mysql_setup"; then
+        print_message "info" "MySQL already configured, skipping"
+        return 0
+    fi
+
+    print_message "info" "Installing and configuring MySQL..."
+    
+    # Install MySQL
+    apt install -y mysql-server
+    
+    # Create database and user
+    mysql -e "CREATE DATABASE IF NOT EXISTS ${DB_NAME};"
+    mysql -e "CREATE USER IF NOT EXISTS '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASSWORD}';"
+    mysql -e "GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_USER}'@'localhost';"
+    mysql -e "FLUSH PRIVILEGES;"
+    
+    mark_step_complete "mysql_setup"
+}
+
+# Function to install WP-CLI
+setup_wp_cli() {
+    if is_step_completed "wp_cli_setup"; then
+        print_message "info" "WP-CLI already installed, skipping"
+        return 0
+    fi
+
+    print_message "info" "Installing WP-CLI..."
+    
+    # Download and install WP-CLI
+    curl -O https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
+    chmod +x wp-cli.phar
+    mv wp-cli.phar /usr/local/bin/wp
+    
+    mark_step_complete "wp_cli_setup"
+}
+
+# Function to install WordPress
+install_wordpress() {
+    if is_step_completed "wordpress_install"; then
+        print_message "info" "WordPress already installed, skipping"
+        return 0
+    fi
+
+    print_message "info" "Installing WordPress..."
+    
+    # Download and extract WordPress
+    cd /var/www
+    wp core download --path=wordpress
+    
+    # Create wp-config.php
+    wp config create \
+        --path=/var/www/wordpress \
+        --dbname="${DB_NAME}" \
+        --dbuser="${DB_USER}" \
+        --dbpass="${DB_PASSWORD}" \
+        --dbhost="${DB_HOST}" \
+        --extra-php <<PHP
+define('WP_DEBUG', false);
+define('FORCE_SSL_ADMIN', true);
+define('WP_MEMORY_LIMIT', '${PHP_MEMORY_LIMIT}');
+define('FS_METHOD', 'direct');
+PHP
+    
+    # Set up Redis configuration if enabled
+    if [ "$USE_REDIS" = "true" ]; then
+        wp config set WP_CACHE true --raw --path=/var/www/wordpress
+        wp config set WP_REDIS_HOST "${REDIS_HOST}" --path=/var/www/wordpress
+        wp config set WP_REDIS_PORT "${REDIS_PORT}" --path=/var/www/wordpress
+        if [ -n "$REDIS_PASSWORD" ]; then
+            wp config set WP_REDIS_PASSWORD "${REDIS_PASSWORD}" --path=/var/www/wordpress
+        fi
+    fi
+    
+    # Set up S3 configuration if enabled
+    if [ "$USE_S3" = "true" ]; then
+        wp config set S3_UPLOADS_BUCKET "${S3_BUCKET}" --path=/var/www/wordpress
+        wp config set S3_UPLOADS_KEY "${S3_ACCESS_KEY}" --path=/var/www/wordpress
+        wp config set S3_UPLOADS_SECRET "${S3_SECRET_KEY}" --path=/var/www/wordpress
+        wp config set S3_UPLOADS_ENDPOINT "${S3_ENDPOINT}" --path=/var/www/wordpress
+    fi
+    
+    # Install WordPress
+    wp core install \
+        --path=/var/www/wordpress \
+        --url="https://${SITE_DOMAIN}" \
+        --title="${SITE_TITLE}" \
+        --admin_user=admin \
+        --admin_password=$(openssl rand -base64 12) \
+        --admin_email="${ADMIN_EMAIL}"
+    
+    # Set correct permissions
+    chown -R www-data:www-data /var/www/wordpress
+    find /var/www/wordpress/ -type d -exec chmod 755 {} \;
+    find /var/www/wordpress/ -type f -exec chmod 644 {} \;
+    
+    mark_step_complete "wordpress_install"
+}
 
 # Main function
 main() {
