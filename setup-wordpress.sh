@@ -260,7 +260,7 @@ DATE=\$(date +%Y%m%d)
 
 # Create backup directory
 mkdir -p "\$BACKUP_DIR"
-chown $(whoami):$(whoami) "$BACKUP_DIR"
+chown $SUDO_USER:$SUDO_USER "$BACKUP_DIR"
 
 # Backup wp-content
 tar -czf "\$BACKUP_DIR/wp-content-\$DATE.tar.gz" "\$SITE_DIR/wp-content"
@@ -293,7 +293,7 @@ EOF
 configure_updates() {
     # Create mu-plugin for update configuration
     mkdir -p /var/www/wordpress/wp-content/mu-plugins
-    chown $(whoami):$(whoami) /var/www/wordpress/wp-content/mu-plugins
+    chown $SUDO_USER:$SUDO_USER /var/www/wordpress/wp-content/mu-plugins
     
     cat > /var/www/wordpress/wp-content/mu-plugins/update-control.php <<EOF
 <?php
@@ -476,14 +476,14 @@ install_wordpress() {
     print_message "info" "Installing WordPress..."
     
     mkdir -p /var/www/wordpress
-    chown $(whoami):$(whoami) /var/www/wordpress
+    chown $SUDO_USER:$SUDO_USER /var/www/wordpress
     
     # Download WordPress as current user
     cd /var/www
-    sudo -u $(whoami) wp core download --path=wordpress
+    sudo -u $SUDO_USER wp core download --path=wordpress
     
     # Create wp-config.php
-    sudo -u $(whoami) wp config create \
+    sudo -u $SUDO_USER wp config create \
         --path=/var/www/wordpress \
         --dbname="${DB_NAME}" \
         --dbuser="${DB_USER}" \
@@ -498,24 +498,24 @@ PHP
     
     # Set up Redis configuration if enabled
     if [ "$USE_REDIS" = "true" ]; then
-        sudo -u $(whoami) wp config set WP_CACHE true --raw --path=/var/www/wordpress
-        sudo -u $(whoami) wp config set WP_REDIS_HOST "${REDIS_HOST}" --path=/var/www/wordpress
-        sudo -u $(whoami) wp config set WP_REDIS_PORT "${REDIS_PORT}" --path=/var/www/wordpress
+        sudo -u $SUDO_USER wp config set WP_CACHE true --raw --path=/var/www/wordpress
+        sudo -u $SUDO_USER wp config set WP_REDIS_HOST "${REDIS_HOST}" --path=/var/www/wordpress
+        sudo -u $SUDO_USER wp config set WP_REDIS_PORT "${REDIS_PORT}" --path=/var/www/wordpress
         if [ -n "$REDIS_PASSWORD" ]; then
-            sudo -u $(whoami) wp config set WP_REDIS_PASSWORD "${REDIS_PASSWORD}" --path=/var/www/wordpress
+            sudo -u $SUDO_USER wp config set WP_REDIS_PASSWORD "${REDIS_PASSWORD}" --path=/var/www/wordpress
         fi
     fi
     
     # Set up S3 configuration if enabled
     if [ "$USE_S3" = "true" ]; then
-        sudo -u $(whoami) wp config set S3_UPLOADS_BUCKET "${S3_BUCKET}" --path=/var/www/wordpress
-        sudo -u $(whoami) wp config set S3_UPLOADS_KEY "${S3_ACCESS_KEY}" --path=/var/www/wordpress
-        sudo -u $(whoami) wp config set S3_UPLOADS_SECRET "${S3_SECRET_KEY}" --path=/var/www/wordpress
-        sudo -u $(whoami) wp config set S3_UPLOADS_ENDPOINT "${S3_ENDPOINT}" --path=/var/www/wordpress
+        sudo -u $SUDO_USER wp config set S3_UPLOADS_BUCKET "${S3_BUCKET}" --path=/var/www/wordpress
+        sudo -u $SUDO_USER wp config set S3_UPLOADS_KEY "${S3_ACCESS_KEY}" --path=/var/www/wordpress
+        sudo -u $SUDO_USER wp config set S3_UPLOADS_SECRET "${S3_SECRET_KEY}" --path=/var/www/wordpress
+        sudo -u $SUDO_USER wp config set S3_UPLOADS_ENDPOINT "${S3_ENDPOINT}" --path=/var/www/wordpress
     fi
     
     # Install WordPress
-    sudo -u $(whoami) wp core install \
+    sudo -u $SUDO_USER wp core install \
         --path=/var/www/wordpress \
         --url="https://${SITE_DOMAIN}" \
         --title="${SITE_TITLE}" \
@@ -527,7 +527,7 @@ PHP
     cp /var/www/wordpress/wp-config.php /tmp/wp-config.tmp
     chown -R www-data:www-data /var/www/wordpress
     mv /tmp/wp-config.tmp /var/www/wordpress/wp-config.php
-    chown $(whoami):$(whoami) /var/www/wordpress/wp-config.php
+    chown $SUDO_USER:$SUDO_USER /var/www/wordpress/wp-config.php
     
     find /var/www/wordpress/ -type d -exec chmod 755 {} \;
     find /var/www/wordpress/ -type f -exec chmod 644 {} \;
