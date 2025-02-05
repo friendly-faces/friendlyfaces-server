@@ -65,20 +65,16 @@ send_discord_alert() {
     local color="$3"  # Decimal color value
     local max_retries=3
     local retry_count=0
-
+    
+    # Escape special characters for JSON
+    description=$(echo "$description" | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+    title=$(echo "$title" | sed 's/"/\\"/g')
+    
     while [ $retry_count -lt $max_retries ]; do
-        response=$(curl -s -w "\n%{http_code}" -H "Content-Type: application/json" \
+        response=$(curl -s -w "\n%{http_code}" \
+             -H "Content-Type: application/json" \
              -X POST \
-             -d "{
-                  \"embeds\": [{
-                    \"title\": \"$title\",
-                    \"description\": \"$description\",
-                    \"color\": $color,
-                    \"footer\": {
-                      \"text\": \"Server: $HOSTNAME | $(date '+%Y-%m-%d %H:%M:%S') | v${VERSION}\"
-                    }
-                  }]
-                }" \
+             -d "{\"embeds\":[{\"title\":\"$title\",\"description\":\"$description\",\"color\":$color,\"footer\":{\"text\":\"Server: $HOSTNAME | $(date '+%Y-%m-%d %H:%M:%S') | v${VERSION}\"}}]}" \
              "$DISCORD_WEBHOOK_URL")
         
         status_code=$(echo "$response" | tail -n1)
@@ -90,10 +86,10 @@ send_discord_alert() {
         else
             retry_count=$((retry_count + 1))
             if [ $retry_count -lt $max_retries ]; then
-                log "WARN" "Failed to send Discord notification (attempt $retry_count/$max_retries). Retrying..."
+                log "WARN" "Failed to send Discord notification (attempt $retry_count/$max_retries). Response: $response_body. Retrying..."
                 sleep 5
             else
-                log "ERROR" "Failed to send Discord notification after $max_retries attempts. Status code: $status_code"
+                log "ERROR" "Failed to send Discord notification after $max_retries attempts. Status code: $status_code. Response: $response_body"
                 return 1
             fi
         fi
