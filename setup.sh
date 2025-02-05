@@ -214,7 +214,162 @@ EOF
     print_message "info" "Monitoring setup completed successfully!"
 }
 
-[Previous SSH, security, and Cloudflared setup functions remain the same but with proper ownership settings]
+# Function to set up SSH security
+configure_ssh() {
+    if is_step_completed "ssh_setup"; then
+        print_message "info" "SSH already configured, skipping"
+        return 0
+    fi
+
+    print_message "info" "Configuring SSH..."
+    
+    # Backup original config
+    cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak.$(date +%Y%m%d_%H%M%S)
+    
+    # Configure SSH daemon
+    cat > /etc/ssh/sshd_config <<EOF
+Port ${SSH_PORT}
+Protocol 2
+PermitRootLogin no
+PasswordAuthentication no
+PubkeyAuthentication yes
+PermitEmptyPasswords no
+X11Forwarding no
+MaxAuthTries 3
+LoginGraceTime 60
+AllowUsers ${USERNAME}
+
+Subsystem sftp /usr/lib/openssh/sftp-server
+EOF
+
+    # Set up user SSH directory and keys
+    print_message "info" "Setting up SSH directory for ${USERNAME}"
+    
+    # Create .ssh directory if it doesn't exist
+    if [ ! -d "/home/${USERNAME}/.ssh" ]; then
+        mkdir -p "/home/${USERNAME}/.ssh"
+    fi
+    
+    # Create authorized_keys file if it doesn't exist
+    touch "/home/${USERNAME}/.ssh/authorized_keys"
+    
+    # Set correct permissions
+    chmod 700 "/home/${USERNAME}/.ssh"
+    chmod 600 "/home/${USERNAME}/.ssh/authorized_keys"
+    chown -R "${USERNAME}:${USERNAME}" "/home/${USERNAME}/.ssh"
+    
+    # If root has authorized_keys, copy them to the new user
+    if [ -f "/root/.ssh/authorized_keys" ]; then
+        print_message "info" "Copying root's authorized keys to ${USERNAME}"
+        cat "/root/.ssh/authorized_keys" >> "/home/${USERNAME}/.ssh/authorized_keys"
+    else
+        print_message "warn" "No authorized_keys found in root directory"
+        print_message "info" "Remember to add your SSH public key to: /home/${USERNAME}/.ssh/authorized_keys"
+        print_message "info" "You can do this by running: ssh-copy-id -i ~/.ssh/id_ed25519.pub ${USERNAME}@<server-ip>"
+    fi
+    
+    # Restart SSH service
+    systemctl restart ssh
+    
+    mark_step_complete "ssh_setup"
+    
+    # Print SSH setup completion message
+    print_message "info" "SSH configuration completed"
+    print_message "info" "Make sure to add your SSH public key before logging out!"
+    print_message "info" "Current SSH port: ${SSH_PORT}"
+}
+
+# Function to set up basic security
+setup_security() {
+    if is_step_completed "security_setup"; then
+        print_message "info" "Security measures already configured, skipping"
+        return 0
+    fi
+
+    print_message "info" "Setting up security measures..."
+    
+    # UFW Setup
+    ufw default deny incoming
+    ufw default allow outgoing
+    ufw allow ${SSH_PORT}/tcp comment 'SSH'
+    ufw --force enable
+    
+    # Fail2ban Setup
+    cat > /etc/fail2ban/jail.local <<EOF
+[DEFAULT]
+bantime = 3600
+findtime = 600
+maxretry = 5
+
+[sshd]
+enabled = true
+port = ${SSH_PORT}
+EOF
+    
+    systemctl enable fail2ban
+    systemctl restart fail2ban
+    mark_step_complete "security_setup"
+}
+
+# Function to install and configure Cloudflared
+setup_cloudflared() {
+    if is_step_completed "cloudflared_install"; then
+        print_message "info" "Cloudflared already installed, skipping installation"
+    else
+        print_message "info" "Installing Cloudflared..."
+        curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+        dpkg -i cloudflared.deb
+        rm cloudflared.deb
+        mark_step_complete "cloudflared_install"
+    fi
+    
+    if is_step_completed "cloudflared_setup"; then
+        print_message "info" "Cloudflared already configured, skipping setup"
+        return 0
+    fi
+
+    # Create directory for cert
+    mkdir -p /home/"$USERNAME"/.cloudflared
+    chown -R "$USERNAME":"$USERNAME" /home/"$USERNAME"/.cloudflared
+    
+    # Check for cert.pem in various locations and copy if needed
+    if [ -f "/root/.cloudflared/cert.pem" ]; then
+        print_message "info" "Found cert.pem in root directory, copying to user directory"
+        mkdir -p /home/"$USERNAME"/.cloudflared
+        cp /root/.cloudflared/cert.pem /home/"$USERNAME"/.cloudflared/
+        chown -R "$USERNAME":"$USERNAME" /home/"$USERNAME"/.cloudflared
+    elif [ ! -f "/home/$USERNAME/.cloudflared/cert.pem" ]; then
+        print_message "warn" "Cloudflare authentication required! You have two options:"
+        print_message "info" "1. Press Ctrl+Z to suspend this script, then:"
+        print_message "info" "   - Run 'cloudflared login'"
+        print_message "info" "   - After login completes, type 'fg' to resume this script"
+        print_message "info" "2. Or open a new terminal and:"
+        print_message "info" "   - SSH into this server again"
+        print_message "info" "   - Run 'cloudflared login' there"
+        print_message "info" "   - Return to this terminal once done"
+        read -p "Have you completed cloudflared login? (y/n): " answer
+        if [[ "$answer" != "y" ]]; then
+            print_message "info" "Please complete the login step and run the script again"
+            exit 0
+        fi
+        
+        # Check again after login
+        if [ -f "/root/.cloudflared/cert.pem" ]; then
+            print_message "info" "Found cert.pem in root directory, copying to user directory"
+            mkdir -p /home/"$USERNAME"/.cloudflared
+            cp /root/.cloudflared/cert.pem /home/"$USERNAME"/.cloudflared/
+            chown -R "$USERNAME":"$USERNAME" /home/"$USERNAME"/.cloudflared
+        elif [ ! -f "/home/$USERNAME/.cloudflared/cert.pem" ]; then
+            print_message "error" "cert.pem not found in either /root/.cloudflared/ or /home/$USERNAME/.cloudflared/"
+            exit 1
+        fi
+    fi
+    
+    cloudflared service install "$CLOUDFLARE_TOKEN"
+    systemctl enable cloudflared
+    systemctl start cloudflared
+    mark_step_complete "cloudflared_setup"
+}
 
 # Main function
 main() {
