@@ -184,7 +184,7 @@ get_wordpress_config() {
         esac
     done
     
-    # WordPress Update Configuration
+   # WordPress Update Configuration
     print_message "info" "WordPress Update Configuration"
     
     # Core Updates
@@ -202,9 +202,23 @@ get_wordpress_config() {
     print_message "info" "Enable automatic plugin updates? (y/N)"
     read -r WP_PLUGIN_UPDATES
     
+    # Convert 'y' to true and 'n' to false for plugin updates
+    if [[ "$WP_PLUGIN_UPDATES" == "y" || "$WP_PLUGIN_UPDATES" == "Y" ]]; then
+        WP_PLUGIN_UPDATES=true
+    else
+        WP_PLUGIN_UPDATES=false
+    fi
+    
     # Theme Updates
     print_message "info" "Enable automatic theme updates? (y/N)"
     read -r WP_THEME_UPDATES
+    
+    # Convert 'y' to true and 'n' to false for theme updates
+    if [[ "$WP_THEME_UPDATES" == "y" || "$WP_THEME_UPDATES" == "Y" ]]; then
+        WP_THEME_UPDATES=true
+    else
+        WP_THEME_UPDATES=false
+    fi
     
     # PHP Configuration
     print_message "info" "PHP Configuration"
