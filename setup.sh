@@ -126,7 +126,7 @@ test_monitoring() {
     print_message "info" "Testing $script_name..."
     
     # Run the script as the new user
-    if sudo -u "$USERNAME" /bin/bash "$script_path"; then
+    if sudo -u "$USERNAME" /bin/bash "$script_path" --test; then
         print_message "info" "✅ $script_name executed successfully"
         
         # Check if Discord message was sent (look for success log)
