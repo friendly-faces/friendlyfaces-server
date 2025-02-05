@@ -15,11 +15,6 @@ VERSION="2.0.0"
 # Track completed steps
 STEPS_FILE="/tmp/wordpress_setup_progress"
 
-if [ "$EUID" = "0" ]; then
-    print_message "error" "Please run this script as the iamfriendly user WITHOUT sudo"
-    exit 1
-fi
-
 # Function to print colored messages
 print_message() {
     local level=$1
@@ -265,6 +260,7 @@ DATE=\$(date +%Y%m%d)
 
 # Create backup directory
 mkdir -p "\$BACKUP_DIR"
+chown $(whoami):$(whoami) "$BACKUP_DIR"
 
 # Backup wp-content
 tar -czf "\$BACKUP_DIR/wp-content-\$DATE.tar.gz" "\$SITE_DIR/wp-content"
@@ -297,6 +293,7 @@ EOF
 configure_updates() {
     # Create mu-plugin for update configuration
     mkdir -p /var/www/wordpress/wp-content/mu-plugins
+    chown $(whoami):$(whoami) /var/www/wordpress/wp-content/mu-plugins
     
     cat > /var/www/wordpress/wp-content/mu-plugins/update-control.php <<EOF
 <?php
@@ -480,8 +477,8 @@ install_wordpress() {
 
     print_message "info" "Installing WordPress..."
     
-    sudo mkdir -p /var/www/wordpress
-    sudo chown iamfriendly:iamfriendly /var/www/wordpress
+    mkdir -p /var/www/wordpress
+    chown $(whoami):$(whoami) /var/www/wordpress
     
     # Download WordPress as iamfriendly user
     cd /var/www
@@ -528,8 +525,12 @@ PHP
         --admin_password=$(openssl rand -base64 12) \
         --admin_email="${ADMIN_EMAIL}"
     
-    # Set correct permissions
+    # Set correct permissions but keep wp-config.php under user ownership
+    cp /var/www/wordpress/wp-config.php /tmp/wp-config.tmp
     chown -R www-data:www-data /var/www/wordpress
+    mv /tmp/wp-config.tmp /var/www/wordpress/wp-config.php
+    chown $(whoami):$(whoami) /var/www/wordpress/wp-config.php
+    
     find /var/www/wordpress/ -type d -exec chmod 755 {} \;
     find /var/www/wordpress/ -type f -exec chmod 644 {} \;
     
