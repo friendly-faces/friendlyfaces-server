@@ -477,7 +477,7 @@ install_wordpress() {
     
     # Download and extract WordPress
     cd /var/www
-    wp core download --path=wordpress
+    sudo -u iamfriendly wp core download --path=wordpress
     
     # Create wp-config.php
     wp config create \
