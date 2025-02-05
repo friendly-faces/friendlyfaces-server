@@ -81,9 +81,6 @@ get_config() {
     # Get SSH port
     get_input "Enter the SSH port" "SSH_PORT" "22"
     
-    # Get Cloudflare token
-    get_input "Enter your Cloudflare token" "CLOUDFLARE_TOKEN"
-    
     # Get monitoring repository
     get_input "Enter the monitoring scripts repository URL" "MONITORING_REPO" "https://github.com/yourgithub/monitoring-scripts"
     
@@ -334,42 +331,49 @@ setup_cloudflared() {
     mkdir -p /home/"$USERNAME"/.cloudflared
     chown -R "$USERNAME":"$USERNAME" /home/"$USERNAME"/.cloudflared
     
-    # Check for cert.pem in various locations and copy if needed
-    if [ -f "/root/.cloudflared/cert.pem" ]; then
-        print_message "info" "Found cert.pem in root directory, copying to user directory"
-        mkdir -p /home/"$USERNAME"/.cloudflared
-        cp /root/.cloudflared/cert.pem /home/"$USERNAME"/.cloudflared/
-        chown -R "$USERNAME":"$USERNAME" /home/"$USERNAME"/.cloudflared
-    elif [ ! -f "/home/$USERNAME/.cloudflared/cert.pem" ]; then
-        print_message "warn" "Cloudflare authentication required! You have two options:"
+    # Check for cert.pem in user directory
+    if [ ! -f "/home/$USERNAME/.cloudflared/cert.pem" ]; then
+        print_message "warn" "Cloudflare authentication required! You need to log in:"
         print_message "info" "1. Press Ctrl+Z to suspend this script, then:"
         print_message "info" "   - Run 'cloudflared login'"
         print_message "info" "   - After login completes, type 'fg' to resume this script"
-        print_message "info" "2. Or open a new terminal and:"
-        print_message "info" "   - SSH into this server again"
-        print_message "info" "   - Run 'cloudflared login' there"
-        print_message "info" "   - Return to this terminal once done"
         read -p "Have you completed cloudflared login? (y/n): " answer
         if [[ "$answer" != "y" ]]; then
             print_message "info" "Please complete the login step and run the script again"
             exit 0
         fi
-        
-        # Check again after login
-        if [ -f "/root/.cloudflared/cert.pem" ]; then
-            print_message "info" "Found cert.pem in root directory, copying to user directory"
-            mkdir -p /home/"$USERNAME"/.cloudflared
-            cp /root/.cloudflared/cert.pem /home/"$USERNAME"/.cloudflared/
-            chown -R "$USERNAME":"$USERNAME" /home/"$USERNAME"/.cloudflared
-        elif [ ! -f "/home/$USERNAME/.cloudflared/cert.pem" ]; then
-            print_message "error" "cert.pem not found in either /root/.cloudflared/ or /home/$USERNAME/.cloudflared/"
-            exit 1
-        fi
     fi
     
-    cloudflared service install "$CLOUDFLARE_TOKEN"
+    # Create a new tunnel with the server's hostname
+    server_hostname=$(hostname)  # Get the actual server hostname
+    print_message "info" "Creating new tunnel for server hostname: $server_hostname"
+    cloudflared tunnel create "$server_hostname"
+    
+    # Find the generated credentials file
+    tunnel_id=$(cloudflared tunnel list | grep "$server_hostname" | awk '{print $1}')
+    credentials_file="/home/$USERNAME/.cloudflared/$tunnel_id.json"
+    
+    if [ ! -f "$credentials_file" ]; then
+        print_message "error" "Tunnel credentials file not found!"
+        exit 1
+    fi
+
+    # Create Cloudflared config.yml with tunnel info
+    print_message "info" "Creating cloudflared config.yml..."
+    sudo bash -c "cat > /etc/cloudflared/config.yml <<EOL
+tunnel: $tunnel_id
+credentials-file: $credentials_file
+ingress:
+  - hostname: $server_hostname   # Use server hostname here
+    service: http://localhost:80
+  - service: http_status:404
+EOL"
+
+    # Start Cloudflared service
+    cloudflared service install
     systemctl enable cloudflared
     systemctl start cloudflared
+    
     mark_step_complete "cloudflared_setup"
 }
 
@@ -430,11 +434,22 @@ main() {
     cat <<EOF
 
 ${GREEN}Next steps:${NC}
-1. Log out and log back in as '${USERNAME}'
-2. Verify folder permissions: 'ls -la /opt/monitoring'
-3. Verify Cloudflared service status: 'systemctl status cloudflared'
-4. Check monitoring scripts in /opt/monitoring
-5. Review crontab entries: 'crontab -l'
+1. Log out and log back in as '${USERNAME}'.
+2. Verify folder permissions for /opt/monitoring: 
+   'ls -la /opt/monitoring'
+3. Verify Cloudflared service status:
+   'sudo systemctl status cloudflared'  # Use sudo to check the service status.
+4. Check the monitoring scripts in /opt/monitoring.
+5. Review crontab entries:
+   'crontab -l'
+
+### Cloudflared Configuration:
+- The Cloudflared configuration file is located at:
+  '/etc/cloudflared/config.yml'.
+- You can edit this file to update the tunnel's hostname or service settings if needed.
+- Ensure the path to the credentials file is correct and the tunnel ID matches the one created for your server.
+  To edit the config.yml, use:
+  'sudo nano /etc/cloudflared/config.yml'
 
 ${YELLOW}Important:${NC}
 - SSH is configured on port ${SSH_PORT}
