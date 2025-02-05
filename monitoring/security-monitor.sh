@@ -66,19 +66,13 @@ send_discord_alert() {
     local max_retries=3
     local retry_count=0
 
+    # Escape newlines and quotes for JSON
+    description=$(echo "$description" | sed ':a;N;$!ba;s/\n/\\n/g' | sed 's/"/\\"/g')
+
     while [ $retry_count -lt $max_retries ]; do
         response=$(curl -s -w "\n%{http_code}" -H "Content-Type: application/json" \
              -X POST \
-             -d "{
-                  \"embeds\": [{
-                    \"title\": \"$title\",
-                    \"description\": \"$description\",
-                    \"color\": $color,
-                    \"footer\": {
-                      \"text\": \"Server: $HOSTNAME | $(date '+%Y-%m-%d %H:%M:%S') | v${VERSION}\"
-                    }
-                  }]
-                }" \
+             -d "{\"embeds\":[{\"title\":\"$title\",\"description\":\"$description\",\"color\":$color,\"footer\":{\"text\":\"Server: $HOSTNAME | $(date '+%Y-%m-%d %H:%M:%S') | v${VERSION}\"}}]}" \
              "$DISCORD_WEBHOOK_URL")
         
         status_code=$(echo "$response" | tail -n1)
