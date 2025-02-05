@@ -333,8 +333,8 @@ setup_nginx() {
     # Create Nginx configuration for WordPress with Cloudflare Tunnel
     cat > "/etc/nginx/sites-available/${SITE_DOMAIN}.conf" <<EOF
 server {
-    listen 127.0.0.1:80;
-    server_name _;  # Accept all hostnames since real hostname handling is done by Cloudflare
+    listen 80;
+    server_name localhost; 
     root /var/www/wordpress;
     index index.php;
 
