@@ -268,24 +268,69 @@ setup_monitoring() {
     
     chmod +x "${SECURITY_SCRIPT}" "${SERVER_SCRIPT}"
     
+    # Prompt for webhook URLs
+    local monitoring_webhook_url=""
+    local security_webhook_url=""
+    
+    print_message "info" "Please enter your Discord webhook URLs"
+    
+    while [ -z "$monitoring_webhook_url" ]; do
+        read -p "Enter SERVER monitoring webhook URL: " monitoring_webhook_url
+        if [ -z "$monitoring_webhook_url" ]; then
+            print_message "warn" "Server webhook URL cannot be empty"
+        fi
+    done
+
+    while [ -z "$security_webhook_url" ]; do
+        read -p "Enter SECURITY monitoring webhook URL: " security_webhook_url
+        if [ -z "$security_webhook_url" ]; then
+            print_message "warn" "Security webhook URL cannot be empty"
+        fi
+    done
+
+    # Create .env file with both webhook URLs
+    print_message "info" "Creating environment file..."
+    cat > /opt/monitoring/.env <<EOF
+# Server monitoring settings
+MONITORING_WEBHOOK_URL=${monitoring_webhook_url}
+ALERT_THRESHOLD_CPU=80
+ALERT_THRESHOLD_MEM=80
+ALERT_THRESHOLD_DISK=85
+
+# Security monitoring settings
+SECURITY_WEBHOOK_URL=${security_webhook_url}
+EOF
+
+    # Set proper permissions
+    chown "$USERNAME:$USERNAME" /opt/monitoring/.env
+    chmod 600 /opt/monitoring/.env  # Only the user can read/write
+    
+    # Modify scripts to source the .env file
+    for script in "${SECURITY_SCRIPT}" "${SERVER_SCRIPT}"; do
+        if [ -f "$script" ]; then
+            # Add source line after shebang
+            sed -i '2i source /opt/monitoring/.env' "$script"
+        fi
+    done
+    
     # Add cronjobs for the specified user (avoiding duplicates)
     sudo -u "$USERNAME" bash -c '
         (crontab -l 2>/dev/null | grep -v "'${SECURITY_SCRIPT}'"; echo "*/15 * * * * /opt/monitoring/'${SECURITY_SCRIPT}'") | sort -u | crontab -
         (crontab -l 2>/dev/null | grep -v "'${SERVER_SCRIPT}'"; echo "*/5 * * * * /opt/monitoring/'${SERVER_SCRIPT}'") | sort -u | crontab -
     '
     
-    # Run scripts once for testing
-    print_message "info" "Running monitoring scripts for initial test..."
-    sudo -u "$USERNAME" /opt/monitoring/"${SECURITY_SCRIPT}"
+    # Test the monitoring setup
+    print_message "info" "Testing monitoring setup..."
+    print_message "info" "Testing server monitoring..."
     sudo -u "$USERNAME" /opt/monitoring/"${SERVER_SCRIPT}"
+    print_message "info" "Testing security monitoring..."
+    sudo -u "$USERNAME" /opt/monitoring/"${SECURITY_SCRIPT}"
     
     mark_step_complete "monitoring_setup"
     
-    # Show the user's crontab entries
-    print_message "info" "Current crontab entries for $USERNAME:"
-    sudo -u "$USERNAME" crontab -l
+    print_message "info" "Monitoring setup completed. Environment file created at /opt/monitoring/.env"
+    print_message "info" "You can modify alert thresholds by editing this file"
 }
-
 # Function to update system packages
 update_system() {
     if is_step_completed "system_update"; then
