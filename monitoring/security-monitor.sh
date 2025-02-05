@@ -3,6 +3,22 @@
 # Script version
 VERSION="1.0.0"
 
+# Parse command line arguments
+FORCE_TEST=false
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -t|--test)
+            FORCE_TEST=true
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Usage: $0 [-t|--test]"
+            exit 1
+            ;;
+    esac
+done
+
 # First find the script's directory
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 
@@ -204,6 +220,29 @@ main() {
         exit 1
     fi
 
+    # If test flag is set, force send a status report
+    if [ "$FORCE_TEST" = true ]; then
+        log "INFO" "Running in test mode - sending immediate security report"
+        
+        # Get service statuses
+        ufw_status=$(check_service_status "ufw")
+        fail2ban_status=$(check_service_status "fail2ban")
+        
+        test_message="🔍 **Security Test Report**\n\n"
+        test_message+="**Service Status:**\n"
+        test_message+="- UFW: ${ufw_status}\n"
+        test_message+="- Fail2ban: ${fail2ban_status}\n\n"
+        
+        # Add some basic security checks
+        test_message+="**Current Security Status:**\n"
+        test_message+="- Listening Ports:\n\`\`\`\n$(netstat -tuln | grep LISTEN)\n\`\`\`\n"
+        test_message+="- Active SSH Sessions:\n\`\`\`\n$(who)\n\`\`\`\n"
+        test_message+="\n*This is a test message sent during setup/verification.*"
+        
+        send_discord_alert "🔧 Security Monitor Test" "$test_message" "3447003"  # Blue color
+        return
+    fi
+
     # Perform security checks
     IFS="::" read -r alert_needed alert_message <<< "$(perform_security_checks)"
 
@@ -211,8 +250,10 @@ main() {
     if [ "$alert_needed" = true ]; then
         send_discord_alert "🚨 Security Alert" "$alert_message" "15158332"  # Red color
     else
-        # Send daily security status at midnight
-        if [ "$(date '+%H:%M')" = "00:00" ]; then
+        # Send daily security status between 9:00-9:14 AM
+        current_hour=$(date '+%H')
+        current_min=$(date '+%M')
+        if [ "$current_hour" = "09" ] && [ "$current_min" -lt "14" ]; then
             # Get service statuses
             ufw_status=$(check_service_status "ufw")
             fail2ban_status=$(check_service_status "fail2ban")
