@@ -438,7 +438,7 @@ ${GREEN}Next steps:${NC}
 2. Verify folder permissions for /opt/monitoring: 
    'ls -la /opt/monitoring'
 3. Verify Cloudflared service status:
-   'sudo systemctl status cloudflared'  # Use sudo to check the service status.
+   'sudo systemctl status cloudflared'
 4. Check the monitoring scripts in /opt/monitoring.
 5. Review crontab entries:
    'crontab -l'
