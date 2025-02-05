@@ -246,7 +246,7 @@ EOF
 setup_backups() {
     if [ "$USE_BACKUPS" != "true" ]; then
         return 0
-    }
+    fi
 
     print_message "info" "Setting up automated backups..."
     
