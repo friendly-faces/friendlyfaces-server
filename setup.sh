@@ -174,19 +174,37 @@ setup_cloudflared() {
     mkdir -p /home/"$USERNAME"/.cloudflared
     chown -R "$USERNAME":"$USERNAME" /home/"$USERNAME"/.cloudflared
     
-    # Check if cert.pem already exists
-    if [ ! -f "/home/$USERNAME/.cloudflared/cert.pem" ]; then
-        print_message "warn" "cert.pem not found. Please run 'cloudflared login' as $USERNAME"
+    # Check for cert.pem in various locations and copy if needed
+    if [ -f "/root/.cloudflared/cert.pem" ]; then
+        print_message "info" "Found cert.pem in root directory, copying to user directory"
+        mkdir -p /home/"$USERNAME"/.cloudflared
+        cp /root/.cloudflared/cert.pem /home/"$USERNAME"/.cloudflared/
+        chown -R "$USERNAME":"$USERNAME" /home/"$USERNAME"/.cloudflared
+    elif [ ! -f "/home/$USERNAME/.cloudflared/cert.pem" ]; then
+        print_message "warn" "Cloudflare authentication required! You have two options:"
+        print_message "info" "1. Press Ctrl+Z to suspend this script, then:"
+        print_message "info" "   - Run 'cloudflared login'"
+        print_message "info" "   - After login completes, type 'fg' to resume this script"
+        print_message "info" "2. Or open a new terminal and:"
+        print_message "info" "   - SSH into this server again"
+        print_message "info" "   - Run 'cloudflared login' there"
+        print_message "info" "   - Return to this terminal once done"
         read -p "Have you completed cloudflared login? (y/n): " answer
         if [[ "$answer" != "y" ]]; then
             print_message "info" "Please complete the login step and run the script again"
             exit 0
         fi
-    fi
-    
-    if [ ! -f "/home/$USERNAME/.cloudflared/cert.pem" ]; then
-        print_message "error" "cert.pem still not found. Please run cloudflared login first"
-        exit 1
+        
+        # Check again after login
+        if [ -f "/root/.cloudflared/cert.pem" ]; then
+            print_message "info" "Found cert.pem in root directory, copying to user directory"
+            mkdir -p /home/"$USERNAME"/.cloudflared
+            cp /root/.cloudflared/cert.pem /home/"$USERNAME"/.cloudflared/
+            chown -R "$USERNAME":"$USERNAME" /home/"$USERNAME"/.cloudflared
+        elif [ ! -f "/home/$USERNAME/.cloudflared/cert.pem" ]; then
+            print_message "error" "cert.pem not found in either /root/.cloudflared/ or /home/$USERNAME/.cloudflared/"
+            exit 1
+        fi
     fi
     
     cloudflared service install "$CLOUDFLARE_TOKEN"
