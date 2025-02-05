@@ -15,6 +15,11 @@ VERSION="2.0.0"
 # Track completed steps
 STEPS_FILE="/tmp/wordpress_setup_progress"
 
+if [ "$EUID" = "0" ]; then
+    print_message "error" "Please run this script as the iamfriendly user WITHOUT sudo"
+    exit 1
+fi
+
 # Function to print colored messages
 print_message() {
     local level=$1
@@ -475,9 +480,12 @@ install_wordpress() {
 
     print_message "info" "Installing WordPress..."
     
-    # Download and extract WordPress
+    sudo mkdir -p /var/www/wordpress
+    sudo chown iamfriendly:iamfriendly /var/www/wordpress
+    
+    # Download WordPress as iamfriendly user
     cd /var/www
-    sudo -u iamfriendly wp core download --path=wordpress
+    wp core download --path=wordpress
     
     # Create wp-config.php
     wp config create \
