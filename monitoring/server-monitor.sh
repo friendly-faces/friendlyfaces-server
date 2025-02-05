@@ -3,6 +3,22 @@
 # Script version
 VERSION="1.0.0"
 
+# Parse command line arguments
+FORCE_TEST=false
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -t|--test)
+            FORCE_TEST=true
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Usage: $0 [-t|--test]"
+            exit 1
+            ;;
+    esac
+done
+
 # First find the script's directory
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 
@@ -146,6 +162,24 @@ main() {
     # Get system metrics
     get_system_metrics
 
+    # If test flag is set, force send a status report
+    if [ "$FORCE_TEST" = true ]; then
+        log "INFO" "Running in test mode - sending immediate status report"
+        status_message="🔍 **Test Status Report**\n\n"
+        status_message+="**System Overview:**\n"
+        status_message+="- CPU Usage: ${cpu_usage}%\n"
+        status_message+="- Load Average: ${load_avg}\n"
+        status_message+="- Memory Usage: ${mem_usage}% (${mem_used}MB/${mem_total}MB)\n"
+        status_message+="- Disk Usage: ${disk_usage}%\n"
+        status_message+="- Process Count: ${processes}\n"
+        status_message+="- System Uptime: ${uptime}\n\n"
+        status_message+="**Disk Details:**\n\`\`\`\n${disk_info}\n\`\`\`\n\n"
+        status_message+="*This is a test message sent during setup/verification.*"
+        
+        send_discord_alert "🔧 Server Monitor Test" "$status_message" "3447003"  # Blue color
+        return
+    fi
+
     # Initialize alert message
     alert_needed=false
     alert_message="🚨 **Resource Alert**\n\n"
@@ -179,8 +213,10 @@ main() {
     if [ "$alert_needed" = true ]; then
         send_discord_alert "⚠️ Resource Monitor Alert" "$alert_message" "15158332"  # Red color
     else
-        # Send daily status update at midnight
-        if [ "$(date '+%H:%M')" = "00:00" ]; then
+        # Send daily status update between 9:00-9:04 AM
+        current_hour=$(date '+%H')
+        current_min=$(date '+%M')
+        if [ "$current_hour" = "09" ] && [ "$current_min" -lt "04" ]; then
             status_message="✅ **Daily Status Report**\n\n"
             status_message+="**System Overview:**\n"
             status_message+="- CPU Usage: ${cpu_usage}%\n"
