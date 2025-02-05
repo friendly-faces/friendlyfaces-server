@@ -100,8 +100,11 @@ configure_ssh() {
     fi
 
     print_message "info" "Configuring SSH..."
+    
+    # Backup original config
     cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak.$(date +%Y%m%d_%H%M%S)
     
+    # Configure SSH daemon
     cat > /etc/ssh/sshd_config <<EOF
 Port ${SSH_PORT}
 Protocol 2
@@ -116,9 +119,42 @@ AllowUsers ${USERNAME}
 
 Subsystem sftp /usr/lib/openssh/sftp-server
 EOF
+
+    # Set up user SSH directory and keys
+    print_message "info" "Setting up SSH directory for ${USERNAME}"
     
+    # Create .ssh directory if it doesn't exist
+    if [ ! -d "/home/${USERNAME}/.ssh" ]; then
+        mkdir -p "/home/${USERNAME}/.ssh"
+    fi
+    
+    # Create authorized_keys file if it doesn't exist
+    touch "/home/${USERNAME}/.ssh/authorized_keys"
+    
+    # Set correct permissions
+    chmod 700 "/home/${USERNAME}/.ssh"
+    chmod 600 "/home/${USERNAME}/.ssh/authorized_keys"
+    chown -R "${USERNAME}:${USERNAME}" "/home/${USERNAME}/.ssh"
+    
+    # If root has authorized_keys, copy them to the new user
+    if [ -f "/root/.ssh/authorized_keys" ]; then
+        print_message "info" "Copying root's authorized keys to ${USERNAME}"
+        cat "/root/.ssh/authorized_keys" >> "/home/${USERNAME}/.ssh/authorized_keys"
+    else
+        print_message "warn" "No authorized_keys found in root directory"
+        print_message "info" "Remember to add your SSH public key to: /home/${USERNAME}/.ssh/authorized_keys"
+        print_message "info" "You can do this by running: ssh-copy-id -i ~/.ssh/id_ed25519.pub ${USERNAME}@<server-ip>"
+    fi
+    
+    # Restart SSH service
     systemctl restart ssh
+    
     mark_step_complete "ssh_setup"
+    
+    # Print SSH setup completion message
+    print_message "info" "SSH configuration completed"
+    print_message "info" "Make sure to add your SSH public key before logging out!"
+    print_message "info" "Current SSH port: ${SSH_PORT}"
 }
 
 # Function to set up basic security
