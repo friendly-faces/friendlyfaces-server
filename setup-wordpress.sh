@@ -438,7 +438,7 @@ setup_mysql() {
     print_message "info" "Installing and configuring MySQL..."
     
     # Install MySQL
-    apt install -y mysql-server
+    apt install -y mariadb-server
     
     # Create database and user
     mysql -e "CREATE DATABASE IF NOT EXISTS ${DB_NAME};"
