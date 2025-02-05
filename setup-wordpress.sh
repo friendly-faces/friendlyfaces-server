@@ -492,6 +492,9 @@ install_wordpress() {
         --extra-php <<PHP
 define('WP_DEBUG', false);
 define('FORCE_SSL_ADMIN', true);
+if ( isset( $_SERVER['HTTP_X_FORWARDED_PROTO'] ) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https' ) {
+    $_SERVER['HTTPS'] = 'on';
+}
 define('WP_MEMORY_LIMIT', '${PHP_MEMORY_LIMIT}');
 define('FS_METHOD', 'direct');
 PHP
