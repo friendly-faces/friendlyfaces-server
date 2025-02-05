@@ -300,10 +300,12 @@ setup_security() {
 bantime = 3600
 findtime = 600
 maxretry = 5
+backend = systemd
 
 [sshd]
 enabled = true
 port = ${SSH_PORT}
+filter = sshd
 EOF
     
     systemctl enable fail2ban
