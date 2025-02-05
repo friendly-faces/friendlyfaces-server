@@ -112,11 +112,25 @@ EOF
 setup_cloudflared() {
     print_message "info" "Installing Cloudflared..."
     
+    # Install cloudflared
     curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
     dpkg -i cloudflared.deb
     rm cloudflared.deb
     
+    # Create directory for cert
+    mkdir -p /home/"$USERNAME"/.cloudflared
+    chown -R "$USERNAME":"$USERNAME" /home/"$USERNAME"/.cloudflared
+    
+    print_message "warn" "Manual step required: Please run 'cloudflared login' as $USERNAME to authenticate"
+    print_message "info" "After login, the cert.pem will be in /home/$USERNAME/.cloudflared/"
+    
     # Install service with token
+    read -p "Press enter after completing cloudflared login..."
+    if [ ! -f "/home/$USERNAME/.cloudflared/cert.pem" ]; then
+        print_message "error" "cert.pem not found. Please run cloudflared login first"
+        exit 1
+    fi
+    
     cloudflared service install "$CLOUDFLARE_TOKEN"
     systemctl enable cloudflared
     systemctl start cloudflared
