@@ -514,13 +514,16 @@ PHP
         sudo -u $SUDO_USER wp config set S3_UPLOADS_ENDPOINT "${S3_ENDPOINT}" --path=/var/www/wordpress
     fi
     
-    # Install WordPress
+    # Generate a random admin password and store it in a variable
+    ADMIN_PASS=$(openssl rand -base64 12)
+    
+    # Install WordPress with the generated admin password
     sudo -u $SUDO_USER wp core install \
         --path=/var/www/wordpress \
         --url="https://${SITE_DOMAIN}" \
         --title="${SITE_TITLE}" \
         --admin_user=admin \
-        --admin_password=$(openssl rand -base64 12) \
+        --admin_password="${ADMIN_PASS}" \
         --admin_email="${ADMIN_EMAIL}"
     
     # Set correct permissions but keep wp-config.php under user ownership
@@ -573,7 +576,7 @@ main() {
     
     print_message "info" "WordPress installation completed successfully!"
     
-    # Print summary of configurations
+    # Print summary of configurations, including the generated admin password
     cat <<EOF
 
 ${GREEN}Installation Complete!${NC}
@@ -581,6 +584,8 @@ ${GREEN}Installation Complete!${NC}
 WordPress has been installed with the following configuration:
 - Site URL: https://${SITE_DOMAIN}
 - Admin URL: https://${SITE_DOMAIN}/wp-admin/
+- Admin Email: ${ADMIN_EMAIL}
+- Admin Password: ${ADMIN_PASS}
 - Database: $([ "$DB_IS_LOCAL" = "true" ] && echo "Local" || echo "Managed")
 - Media Storage: $([ "$USE_S3" = "true" ] && echo "S3/Spaces" || echo "Local")
 - Redis Caching: $([ "$USE_REDIS" = "true" ] && echo "Enabled" || echo "Disabled")
